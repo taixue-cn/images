@@ -29,13 +29,11 @@ import com.andavin.util.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -83,16 +81,14 @@ final class CreateCommand extends BaseCommand implements Listener {
         if (player.hasPermission("images.command.create.url") && URL_TEST.matcher(imageNameArg).matches()) {
 
             AtomicReference<String> fileName = new AtomicReference<>();
-            imageSupplier = () -> {
-                URL url = new URI(imageNameArg).toURL();
-                InetAddress addr = InetAddress.getByName(url.getHost());
-                checkArgument(!addr.isAnyLocalAddress() && !addr.isLoopbackAddress() && !addr.isSiteLocalAddress(),
-                        "invalid local URL: %s", imageNameArg);
+            FutureTask<BufferedImage> prefetchedImage = new FutureTask<>(() -> {
                 int slash = imageNameArg.lastIndexOf('/');
                 fileName.set(slash == -1 ? imageNameArg :
                         imageNameArg.substring(slash + 1));
-                return ImageIO.read(url);
-            };
+                return UrlImageLoader.read(imageNameArg);
+            });
+            Scheduler.async(prefetchedImage);
+            imageSupplier = prefetchedImage::get;
 
             nameSupplier = fileName::get;
         } else {

@@ -17,6 +17,13 @@ show-distance: 64
 # Image sections beyond this range will be hidden from players
 hide-distance: 128
 
+# Network image downloads keep local/private addresses blocked by default.
+# Add only exact service URL prefixes controlled by the server administrator.
+url-fetch:
+  trusted-private-prefixes: []
+  connect-timeout-ms: 3000
+  read-timeout-ms: 10000
+
 database:
   # The type of database that can be used
   # Options: MYSQL, SQLITE, FILE - Default: SQLITE
