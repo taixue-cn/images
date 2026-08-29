@@ -25,7 +25,10 @@ package com.andavin.util;
 
 import com.andavin.reflect.Reflection;
 import com.andavin.reflect.exception.UncheckedClassNotFoundException;
+import com.andavin.reflect.exception.UncheckedNoSuchMethodException;
+import org.apache.commons.lang.StringUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.Server;
 
 import static com.andavin.reflect.Reflection.findClass;
 
@@ -155,22 +158,63 @@ public enum MinecraftVersion {
      * This is only the major version of the game while minor
      * versions can be retrieved via the {@link MinorVersion#CURRENT}.
      */
-    v1_20;
+    v1_20,
+
+    /**
+     * The representation of the Minecraft version {@code 1.21}.
+     * This is only the major version of the game while minor
+     * versions can be retrieved via the {@link MinorVersion#CURRENT}.
+     */
+    v1_21,
+
+    /**
+     * The representation of the Minecraft version {@code 1.22}.
+     * This is only the major version of the game while minor
+     * versions can be retrieved via the {@link MinorVersion#CURRENT}.
+     */
+    v1_22,
+
+    /**
+     * The representation of the Minecraft version {@code 1.23}.
+     * This is only the major version of the game while minor
+     * versions can be retrieved via the {@link MinorVersion#CURRENT}.
+     */
+    v1_23;
 
     /**
      * The current {@link MinecraftVersion} of this server.
      */
     public static final MinecraftVersion CURRENT;
+    private static final boolean PAPER;
 
     static {
 
-        String name = Bukkit.getServer().getClass().getPackage().getName();
-        String versionString = name.substring("org.bukkit.craftbukkit.".length(), name.lastIndexOf("_R"));
+        boolean isPaper = false;
+        try {
+            Reflection.findMethod(Bukkit.class, "getMinecraftVersion");
+            isPaper = true;
+        } catch (UncheckedNoSuchMethodException ignored) {
+        }
+
+        PAPER = isPaper;
+        String versionString = findMajorVersion();
         try {
             CURRENT = MinecraftVersion.valueOf(versionString);
         } catch (RuntimeException e) {
             throw new UnsupportedOperationException("Version " + versionString + " is not supported.", e);
         }
+    }
+
+    /**
+     * Determine if this server is running a version of PaperMC.
+     * <p>
+     * This is determined on a best-effort basis, by checking for the presence
+     * of methods that PaperMC has implemented in addition to SpigotMC.
+     *
+     * @return If this server is running PaperMC.
+     */
+    public static boolean isPaper() {
+        return PAPER;
     }
 
     /**
@@ -252,6 +296,29 @@ public enum MinecraftVersion {
     }
 
     /**
+     * Tell if the specified server version is greater than or equal to
+     * (i.e. newer than or the same as) the {@link #CURRENT
+     * current server version}.
+     * <p>
+     * For example, if {@code MinecraftVersion.greaterThanOrEqual(v1_8_R3)}
+     * is {@code true}, then the current server version is {@code 1.8.8}
+     * or a more recent version (usually meaning version compatibility
+     * with {@code 1.8.8}).
+     *
+     * @param version The version to test the current version against.
+     * @return If the version is greater than or equal to the current version.
+     */
+    public static boolean ge(MinecraftVersion version, MinorVersion minorVersion) {
+        if (CURRENT.ordinal() < version.ordinal()) {
+            return false;
+        } else if (CURRENT.ordinal() > version.ordinal()) {
+            return true;
+        } else {
+            return MinorVersion.CURRENT.ordinal() >= minorVersion.ordinal();
+        }
+    }
+
+    /**
      * Get a class in any NMS package omitting the
      * beginning of the canonical name and enter anything
      * following the version package.
@@ -296,6 +363,21 @@ public enum MinecraftVersion {
         return FULL_VERSION;
     }
 
+    private static String findMajorVersion() {
+
+        Server server = Bukkit.getServer();
+        String packageName = server.getClass().getPackage().getName();
+        int minorIndex = packageName.lastIndexOf("_R");
+        if (minorIndex != -1) {
+            return packageName.substring("org.bukkit.craftbukkit.".length(), packageName.lastIndexOf("_R"));
+        }
+
+        String bukkitVersion = server.getBukkitVersion();
+        String version = bukkitVersion.substring(0, bukkitVersion.indexOf('-'));
+        String[] versionParts = StringUtils.split(version, '.');
+        return 'v' + versionParts[0] + '_' + versionParts[1];
+    }
+
     /**
      * A class that represents the minor version for the Bukkit
      * version barrier. For example, Minecraft {@code 1.7.10} is
@@ -308,7 +390,7 @@ public enum MinecraftVersion {
      */
     public enum MinorVersion {
 
-        R1, R2, R3, R4, R5;
+        R1, R2, R3, R4, R5, R6, R7, R8;
 
         /**
          * The current {@link MinorVersion} of this server.
@@ -317,12 +399,67 @@ public enum MinecraftVersion {
 
         static {
 
-            String name = Bukkit.getServer().getClass().getPackage().getName();
-            String versionString = name.substring(name.indexOf('R'));
+            String versionString = findMinorVersion();
             try {
                 CURRENT = MinorVersion.valueOf(versionString);
             } catch (RuntimeException e) {
                 throw new UnsupportedOperationException("Minor version " + versionString + " is not supported.", e);
+            }
+        }
+
+        private static String findMinorVersion() {
+
+            Server server = Bukkit.getServer();
+            String packageName = server.getClass().getPackage().getName();
+            int minorIndex = packageName.indexOf("R");
+            if (minorIndex != -1) {
+                return packageName.substring(minorIndex);
+            }
+
+            String bukkitVersion = server.getBukkitVersion();
+            return matchVersion(bukkitVersion.substring(0, bukkitVersion.indexOf('-')));
+        }
+
+        private static String matchVersion(String version) {
+            switch (version) {
+                case "1.21":
+                case "1.21.1":
+                    return "R1";
+                case "1.21.3":
+                    return "R2";
+                case "1.21.4":
+                    return "R3";
+                case "1.20.5":
+                case "1.20.6":
+                case "1.21.5":
+                    return "R4";
+                case "1.21.6":
+                case "1.21.7":
+                case "1.21.8":
+                    return "R5";
+                case "1.21.9":
+                case "1.21.10":
+                    return "R6";
+                case "1.21.11":
+                    return "R7";
+                default:
+                    // NOTE: for future compatibility, we will default to the last version minor version
+                    // This will definitely have issues on certain versions, but it will save others
+                    int lastDot = version.lastIndexOf('.');
+                    if (lastDot != version.indexOf('.')) { // Has at least 2 dots in the version
+                        String patch = version.substring(lastDot + 1);
+                        if (StringUtils.isNumeric(patch)) {
+                            int previousPatch = Integer.parseInt(patch) - 1;
+                            String previousVersion = previousPatch == 0 ?
+                                    version.substring(0, lastDot) :
+                                    version.substring(0, lastDot + 1) + previousPatch;
+                            Logger.warn("Unknown minor version for " + version +
+                                    " using " + previousVersion + ". Report this if you have issues.");
+                            return matchVersion(previousVersion);
+                        }
+                    }
+
+                    throw new UnsupportedOperationException("unknown minor version for " + version);
             }
         }
     }

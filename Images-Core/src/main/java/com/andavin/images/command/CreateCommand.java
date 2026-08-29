@@ -26,6 +26,18 @@ package com.andavin.images.command;
 import com.andavin.images.Images;
 import com.andavin.images.image.CustomImage;
 import com.andavin.util.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 import org.apache.commons.lang.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -38,20 +50,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
-import javax.imageio.ImageIO;
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.net.URI;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Predicate;
-import java.util.function.Supplier;
-import java.util.regex.Pattern;
-
 import static com.andavin.util.MinecraftVersion.v1_13;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -62,14 +60,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 final class CreateCommand extends BaseCommand implements Listener {
 
-    private static final Predicate<String> URL_TEST = Pattern.compile("^(https?|ftp|file)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]").asPredicate();
+    private static final Pattern URL_TEST = Pattern.compile("^(https?|ftps?)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]");
     private final Map<UUID, CreateImageTask> creating = new HashMap<>();
 
     CreateCommand() {
         super("create", "images.command.create");
         this.setAliases("new", "add", "load");
         this.setMinimumArgs(1);
-        this.setUsage("/image create <image name> [scale percent]");
+        this.setUsage("/image create <image name | URL> [scale percent]");
         this.setDesc("Create and begin pasting a new custom image");
         Bukkit.getPluginManager().registerEvents(this, Images.getInstance());
     }
@@ -80,20 +78,21 @@ final class CreateCommand extends BaseCommand implements Listener {
         ImageSupplier imageSupplier;
         Supplier<String> nameSupplier;
         String imageNameArg = args[0];
-        if (URL_TEST.test(imageNameArg)) {
+        if (player.hasPermission("images.command.create.url") && URL_TEST.matcher(imageNameArg).matches()) {
 
             AtomicReference<String> fileName = new AtomicReference<>();
-            imageSupplier = () -> {
-                URI uri = new URI(imageNameArg);
+            FutureTask<BufferedImage> prefetchedImage = new FutureTask<>(() -> {
                 int slash = imageNameArg.lastIndexOf('/');
                 fileName.set(slash == -1 ? imageNameArg :
                         imageNameArg.substring(slash + 1));
-                return ImageIO.read(uri.toURL());
-            };
+                return UrlImageLoader.read(imageNameArg);
+            });
+            Scheduler.async(prefetchedImage);
+            imageSupplier = prefetchedImage::get;
 
             nameSupplier = fileName::get;
         } else {
-            File imageFile = Images.getImageFile(imageNameArg);
+            File imageFile = Images.findImageFile(imageNameArg);
             imageSupplier = () -> ImageIO.read(imageFile);
             nameSupplier = imageFile::getName;
         }
@@ -119,7 +118,7 @@ final class CreateCommand extends BaseCommand implements Listener {
         UUID id = player.getUniqueId();
         this.creating.put(id, new CreateImageTask(scale, imageSupplier, nameSupplier));
         Scheduler.repeatAsyncWhile(() -> ActionBarUtil.sendActionBar(player,
-                "§eRight Click to place§7 - §eLeft Click to cancel"),
+                        "§eRight Click to place§7 - §eLeft Click to cancel"),
                 5L, 20L, () -> this.creating.containsKey(id));
     }
 

@@ -30,10 +30,12 @@ import com.andavin.images.data.FileDataManager;
 import com.andavin.images.data.MySQLDataManager;
 import com.andavin.images.data.SQLiteDataManager;
 import com.andavin.images.image.CustomImage;
-import com.andavin.util.LocationUtil;
-import com.andavin.util.Logger;
-import com.andavin.util.Scheduler;
-import com.andavin.util.TimeoutMetadata;
+import com.andavin.util.*;
+import java.io.File;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
+import org.apache.commons.lang.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -45,13 +47,8 @@ import org.bukkit.event.player.*;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
-import java.util.*;
-import java.util.function.Predicate;
-
 import static com.andavin.reflect.Reflection.setFieldValue;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.toList;
 
@@ -112,12 +109,20 @@ public class Images extends JavaPlugin implements Listener {
 
         this.saveDefaultConfig();
         Bukkit.getPluginManager().registerEvents(this, this);
+        if (MinecraftVersion.isPaper()) {
+            Logger.info("PaperMC server detected. Adjustments will be made to accommodate...");
+        }
+        // After 1.21 ProtocolLib becomes a bit unreliable. I'm disabling it for now until we see a change in updates
+        // The built-in implementation seems to work fine so I don't find it worth it to deal with this at the moment
+        // NOTE: this is specifically for odd errors on startup like them seeming to have removed PacketAdapter
+        if (MinecraftVersion.lessThan(MinecraftVersion.v1_21)) {
 
-        Plugin protocolLib = Bukkit.getPluginManager().getPlugin("ProtocolLib");
-        if (protocolLib != null) { // ProtocolLib is present so use it for higher stability
-            this.protocolLib = true;
-            Logger.info("ProtocolLib detected. Enabling generic packet handling...");
-            ProtocolLibListener.register(this, LISTENER_TASKS, BRIDGE);
+            Plugin protocolLib = Bukkit.getPluginManager().getPlugin("ProtocolLib");
+            if (protocolLib != null) { // ProtocolLib is present so use it for higher stability
+                this.protocolLib = true;
+                Logger.info("ProtocolLib detected. Enabling generic packet handling...");
+                ProtocolLibListener.register(this, LISTENER_TASKS, BRIDGE);
+            }
         }
 
         FileConfiguration config = this.getConfig();
@@ -192,13 +197,23 @@ public class Images extends JavaPlugin implements Listener {
             return;
         }
 
-        BRIDGE.setEntityListener(player, (clicker, image, section, action, hand) -> {
+        Runnable intercept = () -> {
+            BRIDGE.setEntityListener(player, (clicker, image, section, action, hand) -> {
 
-            ImageListener listener = LISTENER_TASKS.remove(clicker.getUniqueId());
-            if (listener != null) {
-                listener.click(clicker, image, section, action, hand);
-            }
-        });
+                ImageListener listener = LISTENER_TASKS.remove(clicker.getUniqueId());
+                if (listener != null) {
+                    listener.click(clicker, image, section, action, hand);
+                }
+            });
+        };
+        // If we're using Paper, attempt to delay the entity listener to prevent
+        // a bug where the server does not track accurate movement after the replacement
+        if (MinecraftVersion.isPaper() && MinecraftVersion.greaterThan(MinecraftVersion.v1_20)) {
+            Scheduler.later(intercept, 20L);
+        } else {
+            intercept.run();
+        }
+
     }
 
     @EventHandler
@@ -325,16 +340,46 @@ public class Images extends JavaPlugin implements Listener {
      * @throws IllegalStateException If there are no images in the
      *                               image directory.
      */
-    public static File getImageFile(String fileName) throws IllegalArgumentException, IllegalStateException {
+    public static File findImageFile(String fileName) throws IllegalArgumentException, IllegalStateException {
+        checkArgument(fileName.charAt(0) != '.' && !fileName.contains("..") &&
+                        !StringUtils.contains(fileName, File.pathSeparatorChar),
+                "§cInvalid image name: %s", fileName);
+        File match = findImageFile(imagesDirectory, fileName);
+        checkArgument(match != null, "§cImage not found§f %s", fileName);
+        return match;
+    }
 
-        File imageFile = new File(imagesDirectory, fileName);
-        if (imageFile.exists()) {
-            return imageFile;
+    private static File findImageFile(File dir, String fileName) {
+
+        File[] imageFiles = dir.listFiles();
+        if (imageFiles == null) {
+            return null;
+        }
+
+        File exactMatch = Stream.of(imageFiles)
+                .filter(File::isFile)
+                .filter(file -> file.getName().equals(fileName))
+                .findFirst()
+                .orElse(null);
+        if (exactMatch != null) {
+            return exactMatch;
+        }
+
+        if (StringUtils.contains(fileName, File.separatorChar)) {
+
+            for (File file : imageFiles) {
+
+                String name = file.getName();
+                if (fileName.startsWith(name) && file.isDirectory()) {
+                    String trimmedFileName = fileName.substring(name.length() + 2); // Remove separator too
+                    checkArgument(trimmedFileName.charAt(0) != '.',
+                            "§cInvalid image name: %s", fileName);
+                    return findImageFile(file, trimmedFileName);
+                }
+            }
         }
 
         File match = null;
-        File[] imageFiles = imagesDirectory.listFiles();
-        checkState(imageFiles != null, "§cNo available images");
         for (File file : imageFiles) {
 
             String name = file.getName();
@@ -350,7 +395,6 @@ public class Images extends JavaPlugin implements Listener {
             }
         }
 
-        checkArgument(match != null, "§cImage Not Found§f %s", fileName);
         return match;
     }
 
