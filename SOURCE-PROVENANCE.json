@@ -4,5 +4,6 @@
   "target": "Paper 26.3 build 218 / Java 25",
   "method": "Compile the preserved adapted Java source and overlay it onto the checksum-locked distribution. The original retains bundled libraries and unchanged classes/resources.",
   "source_files": 55,
-  "compiled_source_files": 54
+  "compiled_source_files": 54,
+  "compiled_source_count": 54
 }
