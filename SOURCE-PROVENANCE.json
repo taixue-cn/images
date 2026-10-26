@@ -1,0 +1,8 @@
+{
+  "source_path": "/back/users/taixue/services/minecraft/servers/architecture/backups/plugin-backups/plugin-backups/maintenance-artifacts-20261024/arch-paper26.3-20261024/images-migration-20261024/upstream",
+  "original_distribution_sha256": "c3508f9c37023c035875e2289adf0722d489289180b9b6a81f399c5f0d1189fc",
+  "target": "Paper 26.3 build 218 / Java 25",
+  "method": "Compile the preserved adapted Java source and overlay it onto the checksum-locked distribution. The original retains bundled libraries and unchanged classes/resources.",
+  "source_files": 55,
+  "compiled_source_files": 54
+}
